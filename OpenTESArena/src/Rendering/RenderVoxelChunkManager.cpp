@@ -1576,7 +1576,7 @@ void RenderVoxelChunkManager::update(Span<const ChunkInt2> activeChunkPositions,
 		this->updateChunkDoorVoxelDrawCalls(renderChunk, dirtyDoorAnimInstVoxels, floatingOriginPoint, voxelChunk, voxelChunkManager, ceilingScale, renderer);
 		this->updateChunkDoorVoxelDrawCalls(renderChunk, dirtyDoorVisInstVoxels, floatingOriginPoint, voxelChunk, voxelChunkManager, ceilingScale, renderer);
 
-		Span<const Matrix4d> chunkModelMatrices(transformHeap.pool.values.get(), transformHeap.pool.capacity);
+		Span<const Matrix4d> chunkModelMatrices(transformHeap.pool.values.get(), transformHeap.getHighWaterCount());
 		renderer.populateUniformBufferMatrix4s(transformHeap.uniformBufferID, chunkModelMatrices);
 	}
 

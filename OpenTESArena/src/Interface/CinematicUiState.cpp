@@ -1,5 +1,10 @@
 #include "CinematicUiState.h"
+#include "../Assets/ArenaAssetUtils.h"
+#include "../Assets/FLCFile.h"
+#include "../Assets/TextureManager.h"
 #include "../Game/Game.h"
+
+#include "components/utilities/StringView.h"
 
 namespace
 {
@@ -26,6 +31,7 @@ CinematicUiState::CinematicUiState()
 	this->contextInstID = -1;
 	this->secondsPerImage = 0.0;
 	this->currentSeconds = 0.0;
+	this->streamTextureID = -1;
 	this->imageIndex = -1;
 	this->callback = []() { };
 }
@@ -37,33 +43,69 @@ void CinematicUiState::init(Game &game)
 	this->game = &game;
 
 	TextureManager &textureManager = game.textureManager;
-	Renderer &renderer = game.renderer;	
+	Renderer &renderer = game.renderer;
 	const std::string &sequenceName = this->initInfo.sequenceName;
 	const std::string &paletteName = this->initInfo.paletteName;
-	const std::optional<TextureFileMetadataID> metadataID = textureManager.tryGetMetadataID(sequenceName.c_str());
-	if (!metadataID.has_value())
+
+	const std::string_view extension = StringView::getExtension(sequenceName);
+	const bool isVideo = StringView::caseInsensitiveEquals(extension, ArenaAssetUtils::EXTENSION_FLC) ||
+		StringView::caseInsensitiveEquals(extension, ArenaAssetUtils::EXTENSION_CEL);
+
+	if (isVideo)
 	{
-		DebugLogErrorFormat("Couldn't get texture file metadata for \"%s\".", sequenceName.c_str());
-		return;
-	}
-
-	const TextureFileMetadata &textureFileMetadata = textureManager.getMetadataHandle(*metadataID);
-	const TextureAsset paletteTextureAsset(paletteName);
-
-	const int videoFrameCount = textureFileMetadata.getTextureCount();
-	this->videoTextureIDs.init(videoFrameCount);
-	for (int i = 0; i < videoFrameCount; i++)
-	{
-		const TextureAsset textureAsset(sequenceName, i);
-
-		UiTextureID textureID;
-		if (!TextureUtils::tryAllocUiTexture(textureAsset, paletteTextureAsset, textureManager, renderer, &textureID))
+		// Stream the video: decode frames on demand into a single UI texture.
+		auto stream = std::make_shared<FLCStream>();
+		if (!stream->init(sequenceName.c_str()) || !stream->seekToFrame(0))
 		{
-			DebugLogErrorFormat("Couldn't create UI texture for sequence \"%s\" frame %d.", sequenceName.c_str(), i);
-			continue;
+			DebugLogErrorFormat("Couldn't open video stream \"%s\".", sequenceName.c_str());
+			return;
 		}
 
-		this->videoTextureIDs.set(i, textureID);
+		// Same palette selection as per-frame textures: the palette asset's first palette for every frame.
+		if (StringView::caseInsensitiveEquals(paletteName, sequenceName))
+		{
+			this->streamPalette = stream->getPalette();
+		}
+		else
+		{
+			const std::optional<PaletteID> paletteID = textureManager.tryGetPaletteID(TextureAsset(paletteName));
+			if (paletteID.has_value())
+			{
+				this->streamPalette = textureManager.getPaletteHandle(*paletteID);
+			}
+			else
+			{
+				DebugLogErrorFormat("Couldn't get palette \"%s\" for video \"%s\".", paletteName.c_str(), sequenceName.c_str());
+				this->streamPalette = stream->getPalette();
+			}
+		}
+
+		this->streamTextureID = renderer.createUiTexture(stream->getWidth(), stream->getHeight());
+		if (this->streamTextureID < 0)
+		{
+			DebugLogErrorFormat("Couldn't create UI texture for video \"%s\".", sequenceName.c_str());
+			return;
+		}
+
+		this->flcStream = std::move(stream);
+		const Span<const std::byte> texels(reinterpret_cast<const std::byte*>(this->flcStream->getPixels()), this->flcStream->getWidth() * this->flcStream->getHeight());
+		renderer.populateUiTexture(this->streamTextureID, texels, &this->streamPalette);
+	}
+	else
+	{
+		const std::optional<TextureFileMetadataID> metadataID = textureManager.tryGetMetadataID(sequenceName.c_str());
+		if (!metadataID.has_value())
+		{
+			DebugLogErrorFormat("Couldn't get texture file metadata for \"%s\".", sequenceName.c_str());
+			return;
+		}
+
+		const TextureFileMetadata &textureFileMetadata = textureManager.getMetadataHandle(*metadataID);
+		this->videoTextureIDs.init(textureFileMetadata.getTextureCount());
+		this->videoTextureIDs.fill(-1);
+
+		// Frames are allocated lazily: only the visible frame has a UI texture.
+		this->tryAllocFrameTexture(0);
 	}
 
 	this->secondsPerImage = this->initInfo.secondsPerImage;
@@ -74,12 +116,81 @@ void CinematicUiState::init(Game &game)
 
 void CinematicUiState::freeTextures(Renderer &renderer)
 {
-	for (UiTextureID textureID : this->videoTextureIDs)
+	for (int i = 0; i < this->videoTextureIDs.getCount(); i++)
 	{
-		renderer.freeUiTexture(textureID);
+		this->freeFrameTexture(i, renderer);
 	}
 
 	this->videoTextureIDs.clear();
+
+	if (this->streamTextureID >= 0)
+	{
+		renderer.freeUiTexture(this->streamTextureID);
+		this->streamTextureID = -1;
+	}
+
+	this->flcStream = nullptr;
+}
+
+int CinematicUiState::getFrameCount() const
+{
+	return (this->flcStream != nullptr) ? this->flcStream->getFrameCount() : this->videoTextureIDs.getCount();
+}
+
+UiTextureID CinematicUiState::getFrameTexture(int index)
+{
+	if (this->flcStream != nullptr)
+	{
+		if ((this->flcStream->getCurrentFrameIndex() != index) && this->flcStream->seekToFrame(index))
+		{
+			const Span<const std::byte> texels(reinterpret_cast<const std::byte*>(this->flcStream->getPixels()), this->flcStream->getWidth() * this->flcStream->getHeight());
+			this->game->renderer.populateUiTexture(this->streamTextureID, texels, &this->streamPalette);
+		}
+
+		return this->streamTextureID;
+	}
+
+	return this->tryAllocFrameTexture(index) ? this->videoTextureIDs[index] : -1;
+}
+
+bool CinematicUiState::tryAllocFrameTexture(int index)
+{
+	if ((index < 0) || (index >= this->videoTextureIDs.getCount()))
+	{
+		return false;
+	}
+
+	if (this->videoTextureIDs[index] >= 0)
+	{
+		return true;
+	}
+
+	const TextureAsset textureAsset(this->initInfo.sequenceName, index);
+	const TextureAsset paletteTextureAsset(this->initInfo.paletteName);
+	UiTextureID textureID;
+	if (!TextureUtils::tryAllocUiTexture(textureAsset, paletteTextureAsset, this->game->textureManager, this->game->renderer, &textureID))
+	{
+		DebugLogErrorFormat("Couldn't create UI texture for sequence \"%s\" frame %d.", this->initInfo.sequenceName.c_str(), index);
+		return false;
+	}
+
+	this->videoTextureIDs.set(index, textureID);
+	return true;
+}
+
+void CinematicUiState::freeFrameTexture(int index, Renderer &renderer)
+{
+	if ((index < 0) || (index >= this->videoTextureIDs.getCount()))
+	{
+		return;
+	}
+
+	const UiTextureID textureID = this->videoTextureIDs[index];
+	if (textureID >= 0)
+	{
+		renderer.freeUiTexture(textureID);
+		this->videoTextureIDs.set(index, -1);
+	}
 }
 
 void CinematicUI::create(Game &game)
@@ -98,7 +209,7 @@ void CinematicUI::create(Game &game)
 
 	UiElementInitInfo videoImageElementInitInfo;
 	videoImageElementInitInfo.name = ElementName_VideoImage;
-	uiManager.createImage(videoImageElementInitInfo, state.videoTextureIDs[0], state.contextInstID, renderer);
+	uiManager.createImage(videoImageElementInitInfo, state.getFrameTexture(0), state.contextInstID, renderer);
 
 	game.setCursorOverride(std::nullopt);
 	uiManager.setElementActive(game.cursorImageElementInstID, false);
@@ -132,7 +243,7 @@ void CinematicUI::update(double dt)
 	CinematicUiState &state = CinematicUI::state;
 	Game &game = *state.game;
 
-	const UiTextureID prevImageTextureID = state.videoTextureIDs[state.imageIndex];
+	const int prevImageIndex = state.imageIndex;
 	state.currentSeconds += dt;
 	while (state.currentSeconds > state.secondsPerImage)
 	{
@@ -140,19 +251,25 @@ void CinematicUI::update(double dt)
 		state.imageIndex++;
 	}
 
-	const int textureCount = state.videoTextureIDs.getCount();
-	if (state.imageIndex >= textureCount)
+	const int frameCount = state.getFrameCount();
+	if (state.imageIndex >= frameCount)
 	{
-		state.imageIndex = textureCount - 1;
+		state.imageIndex = frameCount - 1;
 		CinematicUI::onSkipButtonSelected(MouseButtonType::Left);
 	}
 
-	const UiTextureID currentImageTextureID = state.videoTextureIDs[state.imageIndex];
-	if (currentImageTextureID != prevImageTextureID)
+	if ((state.imageIndex != prevImageIndex) && (state.imageIndex >= 0))
 	{
-		UiManager &uiManager = game.uiManager;
-		const UiElementInstanceID videoImageElementInstID = uiManager.getElementByName(ElementName_VideoImage);
-		uiManager.setImageTexture(videoImageElementInstID, currentImageTextureID);
+		const UiTextureID prevImageTextureID = (state.flcStream != nullptr) ? state.streamTextureID :
+			(((prevImageIndex >= 0) && (prevImageIndex < state.videoTextureIDs.getCount())) ? state.videoTextureIDs[prevImageIndex] : -1);
+		const UiTextureID currentImageTextureID = state.getFrameTexture(state.imageIndex);
+		if ((currentImageTextureID >= 0) && (currentImageTextureID != prevImageTextureID))
+		{
+			UiManager &uiManager = game.uiManager;
+			const UiElementInstanceID videoImageElementInstID = uiManager.getElementByName(ElementName_VideoImage);
+			uiManager.setImageTexture(videoImageElementInstID, currentImageTextureID);
+			state.freeFrameTexture(prevImageIndex, game.renderer);
+		}
 	}
 }
 

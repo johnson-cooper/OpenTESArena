@@ -192,8 +192,22 @@ std::vector<std::string> VFS::Manager::getFilesWithExtensionRecursively(const st
 	}
 
 	const std::filesystem::path directoryFsPath(directoryPath);
-	for (const std::filesystem::directory_entry &dirEntry : std::filesystem::recursive_directory_iterator(directoryFsPath))
+	std::error_code iteratorErrorCode;
+	std::filesystem::recursive_directory_iterator dirIter(directoryFsPath, iteratorErrorCode);
+	if (iteratorErrorCode)
 	{
+		return filenames;
+	}
+
+	// Non-throwing iteration: some filesystems (e.g. console device paths) report errors for individual entries.
+	for (const std::filesystem::recursive_directory_iterator dirEnd; dirIter != dirEnd; dirIter.increment(iteratorErrorCode))
+	{
+		if (iteratorErrorCode)
+		{
+			break;
+		}
+
+		const std::filesystem::directory_entry &dirEntry = *dirIter;
 		std::error_code errorCode;
 		if (!dirEntry.is_regular_file(errorCode))
 		{
@@ -207,7 +221,8 @@ std::vector<std::string> VFS::Manager::getFilesWithExtensionRecursively(const st
 			continue;
 		}
 
-		const std::filesystem::path fileRelativePath = std::filesystem::relative(filePath, directoryFsPath);
+		// Lexical (no filesystem access): relative() canonicalizes, which fails on device paths like "mass:/".
+		const std::filesystem::path fileRelativePath = filePath.lexically_relative(directoryFsPath);
 		filenames.emplace_back(fileRelativePath.generic_string());
 	}
 

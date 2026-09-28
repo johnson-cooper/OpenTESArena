@@ -92,7 +92,7 @@ bool MeshLibrary::init(const char *folderPath)
 		MeshLibraryEntry entry;
 		entry.voxelType = voxelType;
 		entry.vertices = std::move(objFile.vertices);
-		entry.vertexIndices = std::move(objFile.indices);
+		entry.vertexIndices.assign(objFile.indices.begin(), objFile.indices.end()); // int -> int32_t (not the same type on every platform).
 		entry.materialName = materialName;
 
 		const auto textureIter = std::find_if(std::begin(MaterialNameTextureSlots), std::end(MaterialNameTextureSlots),

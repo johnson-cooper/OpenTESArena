@@ -605,7 +605,7 @@ void RenderEntityManager::update(Span<const ChunkInt2> activeChunkPositions, Spa
 	{
 		if (transformHeap.pool.getUsedCount() > 0)
 		{
-			Span<const Matrix4d> modelMatrices(transformHeap.pool.values.get(), transformHeap.pool.capacity);
+			Span<const Matrix4d> modelMatrices(transformHeap.pool.values.get(), transformHeap.getHighWaterCount());
 			renderer.populateUniformBufferMatrix4s(transformHeap.uniformBufferID, modelMatrices);
 		}
 	}

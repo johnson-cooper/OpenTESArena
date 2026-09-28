@@ -11,8 +11,12 @@
 #include "RendererUtils.h"
 #include "RenderFrameSettings.h"
 #include "RenderInitSettings.h"
+#if defined(__PS2__)
+#include "ps2/rendering/Ps2GsRenderBackend.h"
+#else
 #include "Sdl2DSoft3DRenderBackend.h"
 #include "VulkanRenderBackend.h"
+#endif
 #include "../Assets/TextureManager.h"
 #include "../Math/MathUtils.h"
 #include "../Math/Rect.h"
@@ -160,6 +164,10 @@ bool Renderer::init(const Window *window, RenderBackendType backendType, const R
 	this->window = window;
 	this->resolutionScaleFunc = resolutionScaleFunc;
 
+#if defined(__PS2__)
+	// The GS backend is the only renderer on PS2; the GraphicsAPI option doesn't apply.
+	this->backend = std::make_unique<Ps2GsRenderBackend>();
+#else
 	switch (backendType)
 	{
 	case RenderBackendType::Vulkan:
@@ -177,6 +185,7 @@ bool Renderer::init(const Window *window, RenderBackendType backendType, const R
 		DebugLogErrorFormat("Unrecognized render backend %d.", backendType);
 		return false;
 	}
+#endif
 	
 	// Initialize the backend's context first so we can query the physical pixel dimensions of the window.
 	// @todo SDL_GetWindowSizeInPixels() in newer SDL2 versions will allow these two inits to combine again
@@ -343,7 +352,7 @@ bool Renderer::populateIndexBuffer(IndexBufferID id, Span<const int32_t> indices
 		return false;
 	}
 
-	Span<int32_t> dstIndices = lockedBuffer.getInts();
+	Span<int> dstIndices = lockedBuffer.getInts();
 
 	DebugAssert(indices.getCount() == dstIndices.getCount());
 	std::copy(indices.begin(), indices.end(), dstIndices.begin());
@@ -486,7 +495,7 @@ bool Renderer::populateUniformBufferMatrix4s(UniformBufferID id, Span<const Matr
 		DebugAssert(lockedBuffer.isContiguous());
 
 		Span<const std::byte> matrixBytes(reinterpret_cast<const std::byte*>(values.begin()), values.getCount() * sizeof(Matrix4d));
-		DebugAssert(matrixBytes.getCount() == lockedBuffer.bytes.getCount());
+		DebugAssert(matrixBytes.getCount() <= lockedBuffer.bytes.getCount()); // Callers may upload only the used prefix.
 		std::copy(matrixBytes.begin(), matrixBytes.end(), lockedBuffer.bytes.begin());
 	}
 	else

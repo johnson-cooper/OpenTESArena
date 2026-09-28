@@ -12,6 +12,10 @@
 
 #include "components/debug/Debug.h"
 
+#if defined(__PS2__)
+#include "ps2/input/Ps2Input.h"
+#endif
+
 namespace
 {
 	// Supported mouse buttons used by the game.
@@ -343,6 +347,11 @@ Int2 InputManager::getMouseDelta() const
 Int2 InputManager::getPreviousCombatMousePosition() const
 {
 	return this->previousCombatMousePosition;
+}
+
+const std::vector<InputActionMap> &InputManager::getInputActionMaps() const
+{
+	return this->inputActionMaps;
 }
 
 bool InputManager::setInputActionMapActive(const std::string &name, bool active)
@@ -685,6 +694,11 @@ void InputManager::handleHeldInputs(Game &game, Span<const InputActionMap*> acti
 
 void InputManager::update(Game &game, double dt, UiManager &uiManager, const std::function<void()> &onFinishedProcessingEvent)
 {
+#if defined(__PS2__)
+	// DualShock 2 -> this frame's input actions/pointer state (see ps2/input/Ps2Input.h).
+	Ps2Input::update(*this, game, uiManager, dt);
+#endif
+
 	int logicalMouseDeltaX, logicalMouseDeltaY;
 	SDL_GetRelativeMouseState(&logicalMouseDeltaX, &logicalMouseDeltaY);
 	this->mouseDelta.x = static_cast<int>(static_cast<double>(logicalMouseDeltaX) * this->logicalToPixelScale);

@@ -1,0 +1,124 @@
+# PlayStation 2 defaults (generated from options/options-default.txt; see PS2_PORT.md).
+# Values that do not apply on PS2 (window size, graphics API, render threads) are ignored by the PS2 backends.
+# Default options for OpenTESArena. This file should not be changed.
+# Any changes to these options should go in an "options-changes.txt"
+# file in your prefs folder. For now, this is created on the program's
+# first run, but in the future, a wizard should be used instead.
+# - Windows: <username>/AppData/Roaming/OpenTESArena/options/
+# - Linux: ~/.config/OpenTESArena/options/
+# - macOS: ~/Library/Preferences/OpenTESArena/options/
+
+[Graphics]
+# Width and height of the window in windowed mode.
+ScreenWidth=640
+ScreenHeight=448
+
+# Determines how the game window is displayed.
+# 0: window, 1: borderless fullscreen, 2: exclusive fullscreen
+WindowMode=2
+
+# Selects the 3D renderer to use.
+# 0: Vulkan, 1: software
+GraphicsAPI=1
+
+TargetFPS=60
+
+# Resolution scale is the percent of the screen resolution used to
+# render the game world. Accepted values are between 0.10 and 1.0.
+ResolutionScale=1.0
+
+# Player field of view in degrees.
+VerticalFOV=60.0
+
+# Each letterbox mode defines a particular aspect ratio for the game UI.
+# 0: 16:10 (default), 1: 4:3, 2: stretch to fill
+LetterboxMode=1
+
+CursorScale=2.0
+
+# If ModernInterface is false, the in-game interface uses Arena's classic 
+# layout. If true, it uses a minimalistic interface with free-look 
+# similar to Daggerfall's.
+ModernInterface=true
+
+# Adjusts the view projection vertically by 20% to match the 16:10 -> 4:3
+# scaling of the original game.
+TallPixelCorrection=true
+
+# The render threads mode determines how many CPU threads are used for
+# rendering. The actual number of threads depends on your CPU.
+# 0: very low, 1: low, 2: medium, 3: high, 4: very high, 5: max
+RenderThreadsMode=0
+
+# Dithering uses a pattern to make lights look more visually pleasing.
+# 0: none, 1: classic, 2: modern
+DitheringMode=0
+
+[Audio]
+MusicVolume=1.0
+SoundVolume=1.0
+
+# Change "MidiConfig" to your desired .cfg file.
+# - Due to a change in WildMIDI 0.5.0, timidity.cfg seems to use flowing water
+#   in place of a triangle, so using gravis.cfg as a fallback here at the cost
+#   of missing a couple instruments.
+MidiConfig=data/eawpats/gravis.cfg
+
+SoundChannels=24
+
+# Sound resampling. Results vary based on your audio driver.
+# 0: default, 1: fastest, 2: medium, 3: best.
+SoundResampling=0
+
+# Whether audio played in the game world has a 3D position or is centered
+# on the player like the original game.
+Is3DAudio=true
+
+[Input]
+# Look sensitivity is normally between 1.0 and 5.0.
+HorizontalSensitivity=2.5
+VerticalSensitivity=2.5
+
+InvertVerticalAxis=false
+
+# Pitch limit determines in degrees how high or low the camera can look relative
+# to the horizon in modern mode.
+CameraPitchLimit=90.0
+
+[Misc]
+# Comma-separated paths the engine will use to search your computer for ACD.EXE
+# and A.EXE, preferring the CD version. If these aren't found, the engine will
+# search your Steam install.
+ArenaPaths=data/ARENACD,data/ARENA
+
+# Change "ArenaSavesPath" to your classic saves folder (if any).
+ArenaSavesPath=data/ArenaSaves
+
+# Determines whether the player ignores collision and can fly around.
+GhostMode=false
+
+# Whether the player takes damage in combat.
+ImmuneToDamage=false
+
+# Shows the opening cinematic on engine start.
+ShowIntro=true
+
+# Draws various profiler info in the game world. Higher profiler levels
+# display more information. Min is 0, max is 3.
+ProfilerLevel=0
+
+ShowCompass=true
+
+# Affects the number of chunks around the player simulated and rendered.
+# Min is 1.
+ChunkDistance=1
+
+# Affects number of stars in the night sky.
+# 0: classic, 1: moderate, 2: high
+StarDensity=0
+
+# Whether the player has a light attached like in the original game.
+PlayerHasLight=true
+
+# Whether to enable Vulkan API call debugging.
+EnableValidationLayers=false

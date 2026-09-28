@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "PlatformAbi.h"
+
 class Random;
 
 template<typename T>
@@ -74,6 +76,8 @@ struct Vector2f
 		this->x = static_cast<T>(0.0);
 		this->y = static_cast<T>(0.0);
 	}
+
+	OTA_PLATFORM_ABI_COPYABLE(Vector2f, T)
 
 	static const Vector2f<T> Zero;
 	static const Vector2f<T> UnitX;

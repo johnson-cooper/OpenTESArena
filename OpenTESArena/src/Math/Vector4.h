@@ -89,6 +89,8 @@ struct Vector4f
 		this->w = static_cast<T>(0.0);
 	}
 
+	OTA_PLATFORM_ABI_COPYABLE(Vector4f, T)
+
 	static const Vector4f<T> Zero;
 	static const Vector4f<T> UnitX;
 	static const Vector4f<T> UnitY;

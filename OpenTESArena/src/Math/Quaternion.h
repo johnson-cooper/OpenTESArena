@@ -14,6 +14,8 @@ struct Quaternion
 	Quaternion(const Double4 &v);
 	Quaternion();
 
+	OTA_PLATFORM_ABI_COPYABLE_DOUBLE(Quaternion)
+
 	static Quaternion identity();
 	static Quaternion fromAxisAngle(const Double3 &v, double w);
 	static Quaternion fromAxisAngle(const Double4 &v);

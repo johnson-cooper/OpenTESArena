@@ -1,0 +1,131 @@
+# OpenTESArena - native PlayStation 2 build (PS2Build).
+#
+#   ps2build build          -> build/bin/opentesarena-ps2.elf
+#
+# The desktop build is unaffected and still uses CMake. See PS2_PORT.md for the architecture.
+#
+# Layout of the PS2 build:
+#   otesa_components  - components/ (VFS, archives, utilities, debug) unchanged from desktop.
+#   otesa_engine      - OpenTESArena/src game/engine code, compiled unchanged except for a few __PS2__
+#                       platform boundaries. Desktop-only implementation files are left out here and
+#                       replaced by ps2/ equivalents (same headers, PS2 implementations):
+#                         Rendering/Window.cpp, Rendering/Sdl*.cpp, Rendering/SoftwareRenderer.cpp,
+#                         Rendering/VulkanRenderBackend.cpp -> ps2/platform/Ps2Window.cpp, ps2/rendering/
+#                         Audio/AudioManager.cpp, Audio/WildMidi.cpp -> ps2/audio/
+#                         Utilities/Platform.cpp -> ps2/platform/Ps2Platform.cpp
+#                       Jolt Physics is replaced by JoltLite (ps2/physics), and the few SDL data types the
+#                       shared headers expose come from ps2/compat.
+#   joltlite          - PS2 physics backend implementing the JPH:: subset used by the engine.
+#   opentesarena-ps2  - the bootable ELF: PS2 platform layer, GS renderer, audio, DualShock 2 input.
+
+project: opentesarena-ps2
+
+targets:
+  - name: otesa_components
+    type: ee_lib
+    sources:
+      - components/archives/*.cpp
+      - components/debug/*.cpp
+      - components/utilities/*.cpp
+      - components/vfs/*.cpp
+    include_dirs: &engine_includes
+      - .
+      - ps2/compat
+      - ps2/physics/include
+      - ps2/physics
+    defines: &engine_defines
+      - __PS2__=1
+      - NDEBUG
+    cflags: &engine_cflags
+      - -std=gnu++20
+      - -fno-rtti
+      - -ffunction-sections
+      - -fdata-sections
+      - -Wall
+      - -Wno-unused-variable
+      - -Wno-unused-but-set-variable
+      - -Wno-unused-function
+      - -Wno-sign-compare
+      - -Wno-reorder
+      - -Wno-class-memaccess
+      - -Wno-missing-braces
+
+  - name: joltlite
+    type: ee_lib
+    sources:
+      - ps2/physics/JoltLite/*.cpp
+    include_dirs: *engine_includes
+    defines: *engine_defines
+    cflags: *engine_cflags
+
+  - name: otesa_engine
+    type: ee_lib
+    sources:
+      - OpenTESArena/src/Assets/*.cpp
+      - OpenTESArena/src/Audio/Music*.cpp
+      - OpenTESArena/src/Audio/SoundLibrary.cpp
+      - OpenTESArena/src/Collision/*.cpp
+      - OpenTESArena/src/Combat/*.cpp
+      - OpenTESArena/src/Entities/*.cpp
+      - OpenTESArena/src/Game/*.cpp
+      - OpenTESArena/src/Input/*.cpp
+      - OpenTESArena/src/Interface/*.cpp
+      - OpenTESArena/src/Items/*.cpp
+      - OpenTESArena/src/Math/*.cpp
+      - OpenTESArena/src/Player/*.cpp
+      - OpenTESArena/src/Rendering/[A-R]*.cpp
+      - OpenTESArena/src/Rendering/WindowCommon.cpp
+      - OpenTESArena/src/Sky/*.cpp
+      - OpenTESArena/src/Stats/*.cpp
+      - OpenTESArena/src/Time/*.cpp
+      - OpenTESArena/src/UI/*.cpp
+      - OpenTESArena/src/Utilities/Color.cpp
+      - OpenTESArena/src/Utilities/Timer.cpp
+      - OpenTESArena/src/Voxels/*.cpp
+      - OpenTESArena/src/Weather/*.cpp
+      - OpenTESArena/src/World/*.cpp
+      - OpenTESArena/src/WorldMap/*.cpp
+    include_dirs: *engine_includes
+    defines: *engine_defines
+    cflags: *engine_cflags
+
+  - name: opentesarena-ps2
+    type: ee
+    sources:
+      - OpenTESArena/src/Main.cpp # In the ELF itself so crt0's reference to main() always links it.
+      - ps2/platform/*.cpp
+      - ps2/compat/*.cpp
+      - ps2/input/*.cpp
+      - ps2/audio/*.cpp
+      - ps2/rendering/*.cpp
+    include_dirs: *engine_includes
+    defines: *engine_defines
+    cflags: *engine_cflags
+    # PS2SDK linkfile + kept .eh_frame so C++ exceptions work (see ps2/link/ee-linkfile).
+    linkfile: ps2/link/ee-linkfile
+    ldflags:
+      - -Wl,-Map=opentesarena-ps2.map
+    libs:
+      - otesa_engine
+      - joltlite
+      - otesa_components
+      - gskit
+      - dmakit
+      - audsrv
+      - pad
+      - filexio
+      - patches
+      - debug
+      - m
+    # IOP modules are embedded and loaded at boot only when the boot device needs them (see Ps2Platform::boot).
+    embed_irx:
+      - iomanx
+      - filexio
+      - sio2man
+      - padman
+      - libsd
+      - audsrv
+      - usbd_mini
+      - bdm
+      - bdmfs_fatfs
+      - usbmass_bd_mini

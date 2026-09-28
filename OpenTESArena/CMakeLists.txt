@@ -416,6 +416,7 @@ SET(TES_RENDERING
     "${SRC_ROOT}/Rendering/VulkanRenderBackend.cpp"
     "${SRC_ROOT}/Rendering/VulkanRenderBackend.h"
     "${SRC_ROOT}/Rendering/Window.cpp"
+    "${SRC_ROOT}/Rendering/WindowCommon.cpp"
     "${SRC_ROOT}/Rendering/Window.h")
 
 SET(TES_SKY

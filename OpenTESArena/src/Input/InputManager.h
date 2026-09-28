@@ -218,6 +218,9 @@ public:
 
 	bool setInputActionMapActive(const std::string &name, bool active);
 
+	// Read-only access for platform input backends that translate native controllers into input actions.
+	const std::vector<InputActionMap> &getInputActionMaps() const;
+
 	InputListenerID addInputActionListener(const std::string &actionName, const InputActionCallback &callback, const std::string &contextName);
 	InputListenerID addMouseButtonChangedListener(const MouseButtonChangedCallback &callback, const std::string &contextName);
 	InputListenerID addMouseButtonHeldListener(const MouseButtonHeldCallback &callback, const std::string &contextName);

@@ -32,6 +32,10 @@
 #include "components/utilities/String.h"
 #include "components/utilities/StringView.h"
 
+#if defined(__PS2__)
+#include "ps2/input/Ps2Input.h"
+#endif
+
 namespace
 {
 	constexpr char ContextName_TextPopUp[] = "GameWorldTextPopUp";
@@ -3077,6 +3081,14 @@ void GameWorldUI::onMouseButtonChanged(Game &game, MouseButtonType type, const I
 				{
 					CardinalDirectionName randomMeleeSwingDirection = PlayerLogic::getRandomMeleeSwingDirection(game.random);
 					player.queuedMeleeSwingDirection = static_cast<int>(randomMeleeSwingDirection);
+#if defined(__PS2__)
+					// Controller-native swings: attack button + right stick direction.
+					int stickSwingDirection;
+					if (Ps2Input::tryConsumeMeleeSwingDirection(&stickSwingDirection))
+					{
+						player.queuedMeleeSwingDirection = stickSwingDirection;
+					}
+#endif
 				}
 			}
 		}

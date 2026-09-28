@@ -71,6 +71,13 @@
 #include "components/utilities/TextLinesFile.h"
 #include "components/vfs/manager.hpp"
 
+#if defined(__PS2__)
+#include "ps2/platform/Ps2Platform.h"
+#define PLATFORM_MEMORY_CHECKPOINT(label) Ps2Platform::logMemoryStats(label)
+#else
+#define PLATFORM_MEMORY_CHECKPOINT(label)
+#endif
+
 namespace
 {
 	struct FrameTimer
@@ -105,7 +112,13 @@ namespace
 			this->currentTimePoint = std::chrono::high_resolution_clock::now();
 
 			auto previousFrameDuration = this->currentTimePoint - this->previousTimePoint;
-			if (previousFrameDuration < this->minimumFrameDuration)
+#if defined(__PS2__)
+			// Frame pacing comes from the GS vsync in the render backend; no sleeping/busy-waiting here.
+			constexpr bool shouldLimitFrameRate = false;
+#else
+			constexpr bool shouldLimitFrameRate = true;
+#endif
+			if (shouldLimitFrameRate && (previousFrameDuration < this->minimumFrameDuration))
 			{
 				const auto sleepBias = previousFrameDuration / 1000; // Keep slightly above target FPS instead of slightly below.
 				const auto sleepDuration = this->minimumFrameDuration - previousFrameDuration - sleepBias;
@@ -297,6 +310,7 @@ bool Game::init()
 	this->inputManager.init(logicalToPixelScale);
 
 	// Load various asset libraries.
+	PLATFORM_MEMORY_CHECKPOINT("before fonts");
 	if (!FontLibrary::getInstance().init())
 	{
 		DebugLogError("Couldn't init font library.");
@@ -304,12 +318,14 @@ bool Game::init()
 	}
 
 	const std::string meshLibraryPath = dataFolderPath + "meshes/";
+	PLATFORM_MEMORY_CHECKPOINT("before meshes");
 	if (!MeshLibrary::getInstance().init(meshLibraryPath.c_str()))
 	{
 		DebugLogError("Couldn't init mesh library.");
 		return false;
 	}
 
+	PLATFORM_MEMORY_CHECKPOINT("before level library");
 	if (!ArenaLevelLibrary::getInstance().init())
 	{
 		DebugLogError("Couldn't init Arena level library.");
@@ -317,12 +333,14 @@ bool Game::init()
 	}
 
 	BinaryAssetLibrary &binaryAssetLibrary = BinaryAssetLibrary::getInstance();
+	PLATFORM_MEMORY_CHECKPOINT("before binary assets");
 	if (!binaryAssetLibrary.init(isFloppyDiskVersion))
 	{
 		DebugLogError("Couldn't init binary asset library.");
 		return false;
 	}
 
+	PLATFORM_MEMORY_CHECKPOINT("before text assets");
 	if (!TextAssetLibrary::getInstance().init())
 	{
 		DebugLogError("Couldn't init text asset library.");
@@ -330,6 +348,7 @@ bool Game::init()
 	}
 
 	ProvinceLibrary &provinceLibrary = ProvinceLibrary::getInstance();
+	PLATFORM_MEMORY_CHECKPOINT("before provinces");
 	provinceLibrary.init(binaryAssetLibrary);
 
 	const std::string clockLibraryPath = dataFolderPath + "Clocks.txt";
@@ -339,6 +358,7 @@ bool Game::init()
 		return false;
 	}
 
+	PLATFORM_MEMORY_CHECKPOINT("before sounds");
 	SoundLibrary::getInstance().init();
 
 	const std::string musicLibraryPath = audioDataPath + "MusicDefinitions.txt";
@@ -348,9 +368,11 @@ bool Game::init()
 		return false;
 	}
 
+	PLATFORM_MEMORY_CHECKPOINT("before cinematics");
 	CinematicLibrary::getInstance().init();
 
 	const std::string uiDataPath = dataFolderPath + "ui/";
+	PLATFORM_MEMORY_CHECKPOINT("before UiLibrary");
 	if (!UiLibrary::getInstance().init(uiDataPath.c_str()))
 	{
 		DebugLogError("Couldn't init UI library.");
@@ -361,6 +383,7 @@ bool Game::init()
 	ItemConditionLibrary::getInstance().init(exeData);
 	ItemMaterialLibrary::getInstance().init(exeData);
 	ItemLibrary::getInstance().init(exeData);
+	PLATFORM_MEMORY_CHECKPOINT("before weaponAnim");
 	WeaponAnimationLibrary::getInstance().init(exeData, this->textureManager);
 	CreatureDefinitionLibrary::getInstance().init(exeData);
 
@@ -369,14 +392,18 @@ bool Game::init()
 	CharacterRaceLibrary::getInstance().init(exeData);
 
 	EntityAnimationLibrary &entityAnimLibrary = EntityAnimationLibrary::getInstance();
+	PLATFORM_MEMORY_CHECKPOINT("before entityAnim");
 	entityAnimLibrary.init(binaryAssetLibrary, charClassLibrary, this->textureManager);
 	EntityDefinitionLibrary::getInstance().init(exeData, charClassLibrary, entityAnimLibrary);
 
+	PLATFORM_MEMORY_CHECKPOINT("before sceneManager");
 	this->sceneManager.init(this->textureManager, this->renderer);
 	this->sceneManager.renderVoxelChunkManager.init(this->renderer);
 	this->sceneManager.renderEntityManager.init(this->renderer);
+	PLATFORM_MEMORY_CHECKPOINT("before sky");
 	this->sceneManager.renderSkyManager.init(exeData, this->textureManager, this->renderer);
 
+	PLATFORM_MEMORY_CHECKPOINT("before weather");
 	if (!this->sceneManager.renderWeatherManager.init(this->textureManager, this->renderer))
 	{
 		DebugLogError("Couldn't init render weather manager.");
@@ -389,6 +416,7 @@ bool Game::init()
 		return false;
 	}
 
+	PLATFORM_MEMORY_CHECKPOINT("before uiManager");
 	if (!this->uiManager.init())
 	{
 		DebugLogError("Couldn't init UI manager.");
@@ -397,6 +425,7 @@ bool Game::init()
 
 	this->dialogueManager.init(*this);
 
+	PLATFORM_MEMORY_CHECKPOINT("before cursor");
 	this->defaultCursorTextureID = CommonUiView::allocDefaultCursorTexture(this->textureManager, this->renderer);
 
 	const char *globalUiContextName = UiLibrary::GlobalContextName;
@@ -825,7 +854,9 @@ void Game::loop()
 
 	// Set startup UI to use for the first frame.
 	this->nextContextName = IntroUiModel::prepareStartupContext(*this);
+	PLATFORM_MEMORY_CHECKPOINT("after startup context");
 	this->handleContextChanges();
+	PLATFORM_MEMORY_CHECKPOINT("after first context");
 
 	// Assume main menu music at startup for now.
 	const MusicLibrary &musicLibrary = MusicLibrary::getInstance();
@@ -836,6 +867,7 @@ void Game::loop()
 	}
 
 	this->audioManager.setMusic(mainMenuMusicDef);
+	PLATFORM_MEMORY_CHECKPOINT("after setMusic");
 
 	FrameTimer frameTimer;
 	frameTimer.init();

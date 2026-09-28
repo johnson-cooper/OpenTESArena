@@ -83,6 +83,8 @@ struct Vector3f
 		this->z = static_cast<T>(0.0);
 	}
 
+	OTA_PLATFORM_ABI_COPYABLE(Vector3f, T)
+
 	static const Vector3f<T> Zero;
 	static const Vector3f<T> UnitX;
 	static const Vector3f<T> UnitY;

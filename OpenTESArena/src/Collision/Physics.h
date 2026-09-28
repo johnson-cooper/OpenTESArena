@@ -19,12 +19,22 @@ struct RayCastHit;
 namespace Physics
 {
 	// Jolt init values.
+#if defined(__PS2__)
+	// PS2 physics backend (ps2/physics/JoltLite): fixed pools sized for ChunkDistance ~1-2 within 32 MiB of RAM.
+	constexpr int TempAllocatorByteCount = 0; // Unused by JoltLite.
+	constexpr int MaxBodies = 4096;
+	constexpr int BodyMutexCount = 0;
+	constexpr int MaxBodyPairs = 2048;
+	constexpr int MaxContactConstraints = MaxBodyPairs / 4;
+	constexpr double DeltaTime = 1.0 / 120.0; // JoltLite's push-out resolver is stable at this rate; halves EE cost.
+#else
 	constexpr int TempAllocatorByteCount = 64 * 1024 * 1024;
 	constexpr int MaxBodies = 250000;
 	constexpr int BodyMutexCount = 0; // Use default settings.
 	constexpr int MaxBodyPairs = 1 << 16;
 	constexpr int MaxContactConstraints = MaxBodyPairs / 4;
 	constexpr double DeltaTime = 1.0 / 240.0; // Very high # of updates per frame to help prevent bumpy road feeling at lower FPS.
+#endif
 
 	int getThreadCount(int platformThreadCount);
 

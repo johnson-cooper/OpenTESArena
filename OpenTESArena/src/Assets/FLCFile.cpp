@@ -241,11 +241,11 @@ bool FLCFile::readPalette(const uint8_t *chunkData, Palette *dst)
 	return true;
 }
 
-Buffer2D<uint8_t> FLCFile::decodeFullFrame(const uint8_t *chunkData,
+void FLCFile::decodeFullFrameInPlace(const uint8_t *chunkData,
 	int chunkSize, Buffer2D<uint8_t> &initialFrame)
 {
 	// Decode a fullscreen image chunk. Most likely the first image in the FLIC.
-	Buffer<uint8_t> decomp(this->width * this->height);
+	uint8_t *decomp = initialFrame.begin(); // Decode straight into the scratch frame (no per-frame allocation).
 
 	// The chunk data is organized in rows, and each row has packets of compressed
 	// pixels. The number of lines is the height of the FLIC.
@@ -302,16 +302,9 @@ Buffer2D<uint8_t> FLCFile::decodeFullFrame(const uint8_t *chunkData,
 		}
 	}
 
-	// Write the decoded frame to the initial (scratch) frame.
-	std::copy(decomp.begin(), decomp.end(), initialFrame.begin());
-
-	// Return a copy of the decoded frame.
-	Buffer2D<uint8_t> image(this->width, this->height);
-	std::copy(decomp.begin(), decomp.end(), image.begin());
-	return image;
 }
 
-Buffer2D<uint8_t> FLCFile::decodeDeltaFrame(const uint8_t *chunkData,
+void FLCFile::decodeDeltaFrameInPlace(const uint8_t *chunkData,
 	int chunkSize, Buffer2D<uint8_t> &initialFrame)
 {
 	// Decode a delta frame chunk. The majority of FLIC frames are this format.
@@ -435,12 +428,6 @@ Buffer2D<uint8_t> FLCFile::decodeDeltaFrame(const uint8_t *chunkData,
 		}
 	}
 
-	// Use the modified initial frame as the source instead of a separate
-	// decompressed buffer.
-	const uint8_t *srcPixels = initialFrame.begin();
-	Buffer2D<uint8_t> image(this->width, this->height);
-	std::copy(srcPixels, srcPixels + (initialFrame.getWidth() * initialFrame.getHeight()), image.begin());
-	return image;
 }
 
 int FLCFile::getFrameCount() const
@@ -477,4 +464,258 @@ const uint8_t *FLCFile::getPixels(int index) const
 	DebugAssertIndex(this->images, index);
 	const Buffer2D<uint8_t> &image = this->images[index].second;
 	return image.begin();
+}
+
+Buffer2D<uint8_t> FLCFile::decodeFullFrame(const uint8_t *chunkData, int chunkSize, Buffer2D<uint8_t> &initialFrame)
+{
+	this->decodeFullFrameInPlace(chunkData, chunkSize, initialFrame);
+
+	// Return a copy of the decoded frame.
+	Buffer2D<uint8_t> image(this->width, this->height);
+	std::copy(initialFrame.begin(), initialFrame.end(), image.begin());
+	return image;
+}
+
+Buffer2D<uint8_t> FLCFile::decodeDeltaFrame(const uint8_t *chunkData, int chunkSize, Buffer2D<uint8_t> &initialFrame)
+{
+	this->decodeDeltaFrameInPlace(chunkData, chunkSize, initialFrame);
+
+	// Use the modified initial frame as the source instead of a separate decompressed buffer.
+	Buffer2D<uint8_t> image(this->width, this->height);
+	std::copy(initialFrame.begin(), initialFrame.end(), image.begin());
+	return image;
+}
+
+FLCStream::FLCStream()
+{
+	this->frameCount = 0;
+	this->currentFrame = -1;
+	this->firstFrameOffset = 0;
+}
+
+bool FLCStream::init(const char *filename)
+{
+	this->filename = filename;
+	this->stream = VFS::Manager::get().open(filename);
+	if (this->stream == nullptr)
+	{
+		DebugLogError("Could not open \"" + this->filename + "\".");
+		return false;
+	}
+
+	uint8_t headerBytes[sizeof(FLICHeader)];
+	if (!this->stream->read(reinterpret_cast<char*>(headerBytes), sizeof(headerBytes)))
+	{
+		DebugLogError("Could not read header of \"" + this->filename + "\".");
+		return false;
+	}
+
+	const uint16_t type = Bytes::getLE16(headerBytes + 4);
+	if (type != static_cast<int>(FileType::FLC_TYPE))
+	{
+		DebugLogError("Unsupported file type \"" + std::to_string(type) + "\".");
+		return false;
+	}
+
+	this->decoder.width = Bytes::getLE16(headerBytes + 8);
+	this->decoder.height = Bytes::getLE16(headerBytes + 10);
+	this->decoder.secondsPerFrame = static_cast<double>(Bytes::getLE32(headerBytes + 16)) / 1000.0;
+	this->firstFrameOffset = static_cast<std::streamoff>(sizeof(FLICHeader));
+
+	// Header-only pass: count image chunks without decoding (same numbering as FLCFile, which drops the final
+	// loop-back frame).
+	int imageChunkCount = 0;
+	std::streamoff frameOffset = this->firstFrameOffset;
+	while (true)
+	{
+		uint8_t frameHeaderBytes[16];
+		this->stream->clear();
+		this->stream->seekg(frameOffset);
+		if (!this->stream->read(reinterpret_cast<char*>(frameHeaderBytes), sizeof(frameHeaderBytes)))
+		{
+			break;
+		}
+
+		const uint32_t frameSize = Bytes::getLE32(frameHeaderBytes);
+		const uint16_t frameType = Bytes::getLE16(frameHeaderBytes + 4);
+		const uint16_t chunkCount = Bytes::getLE16(frameHeaderBytes + 6);
+		if (frameSize < sizeof(FrameHeader))
+		{
+			break;
+		}
+
+		if (frameType == static_cast<uint16_t>(FrameType::FRAME_TYPE))
+		{
+			std::streamoff chunkOffset = frameOffset + static_cast<std::streamoff>(sizeof(FrameHeader));
+			for (uint16_t i = 0; i < chunkCount; i++)
+			{
+				uint8_t chunkHeaderBytes[6];
+				this->stream->seekg(chunkOffset);
+				if (!this->stream->read(reinterpret_cast<char*>(chunkHeaderBytes), sizeof(chunkHeaderBytes)))
+				{
+					break;
+				}
+
+				const uint32_t chunkSize = Bytes::getLE32(chunkHeaderBytes);
+				const uint16_t chunkType = Bytes::getLE16(chunkHeaderBytes + 4);
+				if ((chunkType == static_cast<uint16_t>(ChunkType::FLI_BRUN)) || (chunkType == static_cast<uint16_t>(ChunkType::FLI_SS2)))
+				{
+					imageChunkCount++;
+				}
+
+				if (chunkSize == 0)
+				{
+					break;
+				}
+
+				chunkOffset += chunkSize;
+			}
+		}
+
+		frameOffset += frameSize;
+	}
+
+	this->frameCount = std::max(imageChunkCount - 1, 0);
+	this->pixels.init(this->decoder.width, this->decoder.height);
+	this->pixels.fill(0);
+	this->currentFrame = -1;
+	this->stream->clear();
+	this->stream->seekg(this->firstFrameOffset);
+	return this->frameCount > 0;
+}
+
+bool FLCStream::readNextFrame()
+{
+	// Reads frames until one containing an image chunk has been decoded.
+	while (true)
+	{
+		uint8_t frameHeaderBytes[16];
+		if (!this->stream->read(reinterpret_cast<char*>(frameHeaderBytes), sizeof(frameHeaderBytes)))
+		{
+			return false;
+		}
+
+		const uint32_t frameSize = Bytes::getLE32(frameHeaderBytes);
+		const uint16_t frameType = Bytes::getLE16(frameHeaderBytes + 4);
+		const uint16_t chunkCount = Bytes::getLE16(frameHeaderBytes + 6);
+		if (frameSize < sizeof(FrameHeader))
+		{
+			return false;
+		}
+
+		const size_t payloadSize = frameSize - sizeof(FrameHeader);
+		if (this->frameBytes.size() < payloadSize)
+		{
+			this->frameBytes.resize(payloadSize); // Grows to the largest frame once, then reused.
+		}
+
+		if ((payloadSize > 0) && !this->stream->read(reinterpret_cast<char*>(this->frameBytes.data()), static_cast<std::streamsize>(payloadSize)))
+		{
+			return false;
+		}
+
+		if (frameType != static_cast<uint16_t>(FrameType::FRAME_TYPE))
+		{
+			continue; // .CEL prefix chunk.
+		}
+
+		bool decodedImage = false;
+		size_t chunkOffset = 0;
+		for (uint16_t i = 0; (i < chunkCount) && ((chunkOffset + 6) <= payloadSize); i++)
+		{
+			const uint8_t *chunkPtr = this->frameBytes.data() + chunkOffset;
+			const uint32_t chunkSize = Bytes::getLE32(chunkPtr);
+			const uint16_t chunkType = Bytes::getLE16(chunkPtr + 4);
+			const uint8_t *chunkData = chunkPtr + 6;
+
+			if (chunkType == static_cast<uint16_t>(ChunkType::COLOR_256))
+			{
+				FLCFile::readPalette(chunkData, &this->palette);
+			}
+			else if (chunkType == static_cast<uint16_t>(ChunkType::FLI_BRUN))
+			{
+				this->decoder.decodeFullFrameInPlace(chunkData, static_cast<int>(chunkSize), this->pixels);
+				decodedImage = true;
+			}
+			else if (chunkType == static_cast<uint16_t>(ChunkType::FLI_SS2))
+			{
+				this->decoder.decodeDeltaFrameInPlace(chunkData, static_cast<int>(chunkSize), this->pixels);
+				decodedImage = true;
+			}
+
+			if (chunkSize == 0)
+			{
+				break;
+			}
+
+			chunkOffset += chunkSize;
+		}
+
+		if (decodedImage)
+		{
+			this->currentFrame++;
+			return true;
+		}
+	}
+}
+
+int FLCStream::getFrameCount() const
+{
+	return this->frameCount;
+}
+
+int FLCStream::getWidth() const
+{
+	return this->decoder.width;
+}
+
+int FLCStream::getHeight() const
+{
+	return this->decoder.height;
+}
+
+double FLCStream::getSecondsPerFrame() const
+{
+	return this->decoder.secondsPerFrame;
+}
+
+bool FLCStream::seekToFrame(int index)
+{
+	if ((this->stream == nullptr) || (index < 0) || (index >= this->frameCount))
+	{
+		return false;
+	}
+
+	if (index < this->currentFrame)
+	{
+		this->stream->clear();
+		this->stream->seekg(this->firstFrameOffset);
+		this->pixels.fill(0);
+		this->currentFrame = -1;
+	}
+
+	while (this->currentFrame < index)
+	{
+		if (!this->readNextFrame())
+		{
+			return false;
+		}
+	}
+
+	return true;
+}
+
+int FLCStream::getCurrentFrameIndex() const
+{
+	return this->currentFrame;
+}
+
+const uint8_t *FLCStream::getPixels() const
+{
+	return this->pixels.begin();
+}
+
+const Palette &FLCStream::getPalette() const
+{
+	return this->palette;
 }

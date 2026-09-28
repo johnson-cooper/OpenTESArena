@@ -52,17 +52,24 @@ bool TextureManager::tryLoadPalettes(const char *filename, Buffer<Palette> *outP
 	else if (TextureManager::matchesExtension(filename, ArenaAssetUtils::EXTENSION_CEL) ||
 		TextureManager::matchesExtension(filename, ArenaAssetUtils::EXTENSION_FLC))
 	{
-		FLCFile flc;
-		if (!flc.init(filename))
+		// Stream the frames so only one decoded frame is in memory while collecting per-frame palettes.
+		FLCStream flcStream;
+		if (!flcStream.init(filename))
 		{
-			DebugLogWarning("Couldn't init .FLC/.CEL file \"" + std::string(filename) + "\".");
+			DebugLogWarning("Couldn't init .FLC/.CEL stream \"" + std::string(filename) + "\".");
 			return false;
 		}
 
-		outPalettes->init(flc.getFrameCount());
-		for (int i = 0; i < flc.getFrameCount(); i++)
+		outPalettes->init(flcStream.getFrameCount());
+		for (int i = 0; i < flcStream.getFrameCount(); i++)
 		{
-			outPalettes->set(i, flc.getFramePalette(i));
+			if (!flcStream.seekToFrame(i))
+			{
+				DebugLogWarning("Couldn't decode frame " + std::to_string(i) + " of \"" + std::string(filename) + "\".");
+				return false;
+			}
+
+			outPalettes->set(i, flcStream.getPalette());
 		}
 	}
 	else if (TextureManager::matchesExtension(filename, ArenaAssetUtils::EXTENSION_IMG) ||
@@ -228,6 +235,26 @@ bool TextureManager::tryLoadTextureData(const char *filename, Buffer<TextureBuil
 	else if (TextureManager::matchesExtension(filename, ArenaAssetUtils::EXTENSION_FLC) ||
 		TextureManager::matchesExtension(filename, ArenaAssetUtils::EXTENSION_CEL))
 	{
+		if (outTextures == nullptr)
+		{
+			// Metadata only: a header pass is enough (decoding every frame of a long video costs many MB).
+			FLCStream flcStream;
+			if (!flcStream.init(filename))
+			{
+				DebugLogWarning("Couldn't init .FLC/.CEL stream \"" + std::string(filename) + "\".");
+				return false;
+			}
+
+			if (outMetadata != nullptr)
+			{
+				Buffer<Int2> dimensions(flcStream.getFrameCount());
+				dimensions.fill(Int2(flcStream.getWidth(), flcStream.getHeight()));
+				outMetadata->init(std::string(filename), std::move(dimensions), flcStream.getSecondsPerFrame());
+			}
+
+			return true;
+		}
+
 		FLCFile flc;
 		if (!flc.init(filename))
 		{

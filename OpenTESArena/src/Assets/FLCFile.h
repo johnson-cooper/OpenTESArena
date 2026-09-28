@@ -22,8 +22,11 @@
 // These websites have some information on the FLIC format:
 // - http://www.compuphase.com/flic.htm
 // - http://www.fileformat.info/format/fli/egff.htm
+class FLCStream;
+
 class FLCFile
 {
+	friend class FLCStream;
 private:
 	// One buffer for each frame. Each integer points into that frame's palette.
 	std::vector<std::pair<int, Buffer2D<uint8_t>>> images;
@@ -42,6 +45,10 @@ private:
 
 	// Decodes a delta FLC chunk by partially updating the initial frame indices and
 	// returning a complete frame.
+	// In-place variants decode directly into the scratch frame (no allocation).
+	void decodeFullFrameInPlace(const uint8_t *chunkData, int chunkSize, Buffer2D<uint8_t> &initialFrame);
+	void decodeDeltaFrameInPlace(const uint8_t *chunkData, int chunkSize, Buffer2D<uint8_t> &initialFrame);
+
 	Buffer2D<uint8_t> decodeDeltaFrame(const uint8_t *chunkData, int chunkSize,
 		Buffer2D<uint8_t> &initialFrame);
 public:
@@ -57,4 +64,40 @@ public:
 
 	// Gets the pixel data for some frame.
 	const uint8_t *getPixels(int index) const;
+};
+
+// Sequential .FLC/.CEL decoder that keeps only one frame in memory. Frames are read one at a time from the VFS
+// stream, so memory use is independent of video length (Arena's cinematics are up to ~14 MB compressed and hundreds
+// of full-screen frames). Used by cinematics instead of decoding every frame up front.
+class FLCStream
+{
+private:
+	FLCFile decoder; // Chunk decoders + dimensions only; its frame lists stay empty.
+	std::shared_ptr<std::istream> stream;
+	std::string filename;
+	std::vector<uint8_t> frameBytes; // Reused frame read buffer.
+	Buffer2D<uint8_t> pixels;
+	Palette palette;
+	int frameCount;
+	int currentFrame;
+	std::streamoff firstFrameOffset;
+
+	bool readNextFrame();
+public:
+	FLCStream();
+
+	// Reads the header and counts frames (header-only pass, no decoding).
+	bool init(const char *filename);
+
+	int getFrameCount() const;
+	int getWidth() const;
+	int getHeight() const;
+	double getSecondsPerFrame() const;
+
+	// Decodes forward to the given frame (restarting from the beginning if it's behind the current one).
+	bool seekToFrame(int index);
+
+	int getCurrentFrameIndex() const;
+	const uint8_t *getPixels() const;
+	const Palette &getPalette() const;
 };

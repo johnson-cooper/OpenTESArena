@@ -30,3 +30,8 @@ void RenderTransformHeap::clear()
 	this->uniformBufferID = -1;
 	this->pool.clear();
 }
+
+int RenderTransformHeap::getHighWaterCount() const
+{
+	return this->pool.nextValueIndex;
+}

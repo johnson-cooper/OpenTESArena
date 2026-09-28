@@ -1,10 +1,14 @@
 #pragma once
 
+#include <memory>
+
 #include "../Rendering/RenderTextureUtils.h"
+#include "../Utilities/Palette.h"
 #include "../UI/UiContext.h"
 #include "../UI/UiElement.h"
 #include "../UI/UiLibrary.h"
 
+class FLCStream;
 class Game;
 
 enum class MouseButtonType;
@@ -31,7 +35,12 @@ struct CinematicUiState
 	Game *game;
 	UiContextInstanceID contextInstID;
 
-	Buffer<UiTextureID> videoTextureIDs;
+	Buffer<UiTextureID> videoTextureIDs; // Per-frame textures for non-streamed sequences (allocated lazily).
+
+	// Streamed .FLC/.CEL playback: one decoder and one reused UI texture regardless of video length.
+	std::shared_ptr<FLCStream> flcStream;
+	UiTextureID streamTextureID;
+	Palette streamPalette;
 	double secondsPerImage, currentSeconds;
 	int imageIndex;
 	CinematicFinishedCallback callback;
@@ -40,6 +49,13 @@ struct CinematicUiState
 
 	void init(Game &game);
 	void freeTextures(Renderer &renderer);
+
+	// Streaming: creates/frees the UI texture of a single frame.
+	bool tryAllocFrameTexture(int index);
+	void freeFrameTexture(int index, Renderer &renderer);
+
+	int getFrameCount() const;
+	UiTextureID getFrameTexture(int index); // Streams/allocates as needed.
 };
 
 namespace CinematicUI

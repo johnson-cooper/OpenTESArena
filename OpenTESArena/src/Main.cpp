@@ -13,16 +13,30 @@
 
 #include "components/debug/Debug.h"
 
+#if defined(__PS2__)
+#include "ps2/platform/Ps2Platform.h"
+#endif
+
 int main(int argc, char *argv[])
 {
 	static_cast<void>(argc);
 	static_cast<void>(argv);
 
+#if defined(__PS2__)
+	// IOP modules, boot device, base path, controller/audio drivers. Must run before any file access.
+	Ps2Platform::boot(argc, argv);
+#endif
+
 	const std::string logPath = Platform::getLogPath();
 	if (!Debug::init(logPath.c_str()))
 	{
+#if defined(__PS2__)
+		// Read-only boot media (disc) can't hold a log file; TTY logging still works.
+		std::cerr << "Couldn't init debug log file; continuing with TTY logging only.\n";
+#else
 		std::cerr << "Couldn't init debug logging.\n";
 		return EXIT_FAILURE;
+#endif
 	}
 
 	// Jolt Physics init.
